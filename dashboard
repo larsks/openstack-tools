@@ -1,0 +1,12 @@
+#!/bin/sh
+
+# OS_AUTH_URL=http://10.16.17.222:5000/v2.0/
+
+url=${OS_AUTH_URL%:*}/
+
+if [ "$1" = "-u" ]; then
+	echo "$url"
+else
+	exec xdg-open $url
+fi
+
