@@ -1,0 +1,160 @@
+#!/bin/sh
+
+# "stack" is a shell script that makes it easy to switch between multiple
+# sets of OpenStack credentials.
+
+: ${STACKDIR:=$HOME/.stack}
+EXENAME=${0##*/}
+
+log () {
+	echo "${EXENAME} $(date): $1" >&2
+}
+
+die () {
+	log "ERROR: $1"
+	exit 1
+}
+
+usage () {
+	cat <<-EOF
+	${EXENAME} usage:
+	    ${EXENAME} [options] --list
+	    ${EXENAME} [options] (--set-default|--show) <stackname>
+	    ${EXENAME} [options] <stackname> <command> [args [...]]
+
+	Options:
+
+	  --stackdir <directory>
+
+	    Specify stack directory (currently $STACKDIR).
+
+	Place credential files in $STACKDIR/<stackname>.
+	EOF
+}
+
+run_list () {
+	for stack in $(ls $STACKDIR); do
+		if [ -L $STACKDIR/$stack ]; then
+			echo "$stack -> $(readlink $STACKDIR/$stack)"
+		else
+			echo $stack
+		fi
+	done
+}
+
+run_show () {
+	if [ $# -ne 1 ]; then
+		usage >&2
+		exit 2
+	fi
+
+	stack=$1
+
+	if ! [ -f $STACKDIR/$stack ]; then
+		die "No such stack: $stack"
+	fi
+
+	cat $STACKDIR/$stack
+}
+
+run_setdefault () {
+	if [ $# -ne 1 ]; then
+		usage >&2
+		exit 2
+	fi
+
+	stack=$1
+
+	if [ -f $STACKDIR/default ] && ! [ -L $STACKDIR/default ]; then
+		die "$STACKDIR/default is not a symlink."
+	fi
+
+	if ! [ -f $STACKDIR/$stack ]; then
+		die "No such stack: $stack"
+	fi
+
+	ln -sf $stack $STACKDIR/default
+}
+
+run_exec () {
+	if [ $# -lt 2 ]; then
+		usage >&2
+		exit 2
+	fi
+
+	stack=$1
+	shift
+
+	if ! [ -f $STACKDIR/$stack ]; then
+		die "No such stack: $stack"
+	fi
+
+	. $STACKDIR/$stack
+	export OS_STACK_NAME=$stack
+	exec "$@"
+}
+
+mode=exec
+
+while [ "$1" ]; do
+	case $1 in
+	(--)	shift
+		break
+		;;
+
+	(--list|-l)
+		mode=list
+		shift
+		;;
+	
+	(--show|-s)
+		mode=show
+		shift
+		;;
+
+	(--set-default|-d)
+		mode=setdefault
+		shift
+		;;
+
+	(--stackdir|-D)
+		STACKDIR=$2
+		shift 2
+		;;
+
+	(--help|-h)
+		shift
+		usage
+		exit 0
+		;;
+
+	(-*)	die "unknown option: $1"
+		;;
+
+	(*)	break
+		;;
+	esac
+done
+
+[ -d "$STACKDIR" ] || die "stack director $STACKDIR  does not exist"
+
+case $mode in
+	(setdefault)	run_setdefault "$@"
+			;;
+
+	(list)		run_list "$@"
+			;;
+
+	(show)		run_show "$@"
+			;;
+
+	(exec)		run_exec "$@"
+			;;
+
+	(*)		usage >&2
+			exit 2
+			;;
+esac
+
+exit 0
+

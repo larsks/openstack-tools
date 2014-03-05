@@ -1,0 +1,101 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import argparse
+import yaml
+
+from keystoneclient.v2_0 import client as ksclient
+from heatclient import client as heatclient
+
+class OpenstackService (object):
+    service_type = None
+    endpoint_type = 'publicURL'
+
+    def __init__(self, ksclient):
+        self._ks = ksclient
+        self.find_endpoint()
+
+    def find_endpoint(self):
+        self.endpoint = self._ks.service_catalog.url_for(
+            service_type=self.service_type,
+            endpoint_type=self.endpoint_type)
+
+    @property
+    def auth_token(self):
+        return self._ks.auth_token
+
+
+class Stack (OpenstackService):
+    service_type = 'orchestration'
+    api_version = '1'
+
+    def __init__(self, ksclient, stackname):
+        self._stack = None
+        self._heat = None
+        self.name = stackname
+
+        super(Stack, self).__init__(ksclient)
+        
+        self.setup_heatclient()
+        self.get_stack()
+
+    def setup_heatclient(self):
+        self._heat = heatclient.Client(
+            self.api_version,
+            self.endpoint,
+            token=self.auth_token)
+
+    def get_stack(self):
+        self._stack = self._heat.stacks.get(self.name)
+
+    @property
+    def outputs(self):
+        assert(self._stack is not None)
+        return dict((o['output_key'], o['output_value']) for o in
+                   self._stack.to_dict()['outputs'])
+
+def parse_args():
+    p = argparse.ArgumentParser()
+
+    p.add_argument('--os-username',
+                 default=os.environ.get('OS_USERNAME'))
+    p.add_argument('--os-tenant-name',
+                 default=os.environ.get('OS_TENANT_NAME'))
+    p.add_argument('--os-password',
+                 default=os.environ.get('OS_PASSWORD'))
+    p.add_argument('--os-auth-url',
+                 default=os.environ.get('OS_AUTH_URL'))
+    p.add_argument('--os-region-name',
+                 default=os.environ.get('OS_REGION_NAME'))
+    p.add_argument('--api-version',
+                   default='1')
+
+    p.add_argument('stack')
+    p.add_argument('output', nargs='?')
+
+    return p.parse_args()
+
+def get_ksclient(args):
+    kwargs = {
+        'auth_url': args.os_auth_url,
+        'tenant_name': args.os_tenant_name,
+        'username': args.os_username,
+        'password': args.os_password,
+    }
+    return ksclient.Client(**kwargs)
+
+def main():
+    args = parse_args()
+    ks = get_ksclient(args)
+    s = Stack(ks, args.stack)
+
+    yaml.add_representer(unicode, 
+                         lambda dumper, value: dumper.represent_scalar(u'tag:yaml.org,2002:str', value))
+
+    print yaml.dump(s.outputs,
+                    default_flow_style=False)
+
+if __name__ == '__main__':
+    main()
+
