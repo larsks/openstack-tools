@@ -138,6 +138,9 @@ done
 
 [ -d "$STACKDIR" ] || die "stack director $STACKDIR  does not exist"
 
+# Clear environment
+unset $(env | awk -F= '/^OS_/ {print $1}')
+
 case $mode in
 	(setdefault)	run_setdefault "$@"
 			;;
